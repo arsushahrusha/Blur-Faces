@@ -1,11 +1,8 @@
-# main.py
 import os
-import uuid
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-import shutil
 from typing import Dict, Any
 
 from video_processor import VideoProcessor
@@ -110,59 +107,6 @@ async def get_analysis_result(video_id: str):
         raise HTTPException(status_code=500, detail=f"Error getting analysis: {str(e)}")
 
 
-@app.post("/api/preview/{video_id}")
-async def generate_preview(video_id: str, request: PreviewRequest):
-    """Генерирует превью видео с размытием"""
-    try:
-        print(f"🔍 [DEBUG] Starting preview generation for {video_id}")
-        
-        video_path = temp_storage.get_video_path(video_id)
-        if not video_path:
-            raise HTTPException(status_code=404, detail="Video not found")
-        
-        print(f"🔍 [DEBUG] Video path: {video_path}")
-        print(f"🔍 [DEBUG] Masks data type: {type(request.masks)}")
-        print(f"🔍 [DEBUG] First mask sample: {list(request.masks.items())[0] if request.masks else 'No masks'}")
-        
-        # Преобразуем Pydantic модели в обычные словари
-        masks_dict = {}
-        for frame_key, face_boxes in request.masks.items():
-            masks_dict[str(frame_key)] = [
-                {
-                    'x': face.x,
-                    'y': face.y, 
-                    'width': face.width,
-                    'height': face.height,
-                    'confidence': face.confidence
-                }
-                for face in face_boxes
-            ]
-        
-        print(f"🔍 [DEBUG] Converted masks keys: {list(masks_dict.keys())[:3]}")  # Первые 3 ключа
-
-        # Генерируем превью
-        preview_path = os.path.join(temp_storage.get_session_dir(video_id), "preview.mp4")
-
-        success = processor.generate_preview(
-            input_path=video_path,
-            output_path=preview_path,
-            masks_data=masks_dict,  # Используем преобразованные данные
-            blur_strength=request.blur_strength,
-            preview_duration=request.preview_duration
-        )
-        
-        if success:
-            temp_storage.save_preview_video(video_id, preview_path)
-            return {"status": "preview_created", "preview_url": f"/api/preview-file/{video_id}"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to create preview")
-            
-    except Exception as e:
-        print(f"💥 [DEBUG] Preview error: {str(e)}")
-        import traceback
-        print(f"💥 [DEBUG] Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Preview error: {str(e)}")
-
 @app.post("/api/process/{video_id}")
 async def process_video(video_id: str, request: ProcessRequest, background_tasks: BackgroundTasks):
     """Запускает обработку видео в фоне"""
@@ -182,7 +126,6 @@ async def process_video(video_id: str, request: ProcessRequest, background_tasks
                     'y': face.y, 
                     'width': face.width,
                     'height': face.height,
-                    'confidence': face.confidence
                 }
                 for face in face_boxes
             ]
@@ -196,6 +139,145 @@ async def process_video(video_id: str, request: ProcessRequest, background_tasks
         temp_storage.update_session_status(video_id, ProcessingStatus.ERROR, f"Processing error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
 
+@app.get("/api/frame/{video_id}/{frame_number}")
+async def get_video_frame(video_id: str, frame_number: int):
+    """Возвращает конкретный кадр видео"""
+    try:
+        #print(f"🔍 [DEBUG] Getting frame {frame_number} for video {video_id}")
+        
+        video_path = temp_storage.get_video_path(video_id)
+        #print(f"🔍 [DEBUG] Video path: {video_path}")
+        
+        if not video_path or not os.path.exists(video_path):
+            print("❌ [DEBUG] Video not found")
+            raise HTTPException(status_code=404, detail="Video not found")
+        
+        import cv2
+        cap = cv2.VideoCapture(video_path)
+        
+        # Получаем общее количество кадров для отладки
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        #print(f"🔍 [DEBUG] Total frames: {total_frames}, requested: {frame_number}")
+        
+        # Устанавливаем позицию кадра
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+        ret, frame = cap.read()
+        cap.release()
+        
+        #print(f"🔍 [DEBUG] Frame read success: {ret}")
+        
+        if not ret:
+            raise HTTPException(status_code=404, detail="Frame not found")
+        
+        # Кодируем кадр в JPEG
+        _, buffer = cv2.imencode('.jpg', frame)
+        #print(f"✅ [DEBUG] Frame encoded successfully, size: {len(buffer)} bytes")
+        
+        return Response(content=buffer.tobytes(), media_type="image/jpeg")
+        
+    except Exception as e:
+        print(f"❌ [DEBUG] Error getting frame: {str(e)}")
+        import traceback
+        print(f"❌ [DEBUG] Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Error getting frame: {str(e)}")
+
+@app.post("/api/frame/{video_id}/{frame_number}/add_face")
+async def add_face_to_frame(
+    video_id: str, 
+    frame_number: int,
+    request: AddFaceRequest
+):
+    """Добавляет лицо на указанный кадр"""
+    try:
+        # Получаем текущие результаты анализа
+        analysis_result = temp_storage.get_analysis_result(video_id)
+        if not analysis_result:
+            raise HTTPException(status_code=404, detail="Analysis results not found")
+        
+        frame_key = str(frame_number)
+        
+        # Добавляем новое лицо
+        if frame_key not in analysis_result['faces_by_frame']:
+            analysis_result['faces_by_frame'][frame_key] = []
+        
+        analysis_result['faces_by_frame'][frame_key].append({
+            'x': request.x,
+            'y': request.y,
+            'width': request.width,
+            'height': request.height,
+            'manual': True
+        })
+        
+        # Сохраняем обновленные результаты
+        temp_storage.save_analysis_result(video_id, analysis_result)
+        
+        return {"status": "success", "message": "Face added successfully"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error adding face: {str(e)}")
+
+@app.delete("/api/frame/{video_id}/{frame_number}/remove_face/{face_index}")
+async def remove_face_from_frame(video_id: str, frame_number: int, face_index: int):
+    """Удаляет лицо из указанного кадра"""
+    try:
+        analysis_result = temp_storage.get_analysis_result(video_id)
+        if not analysis_result:
+            raise HTTPException(status_code=404, detail="Analysis results not found")
+        
+        frame_key = str(frame_number)
+        if frame_key in analysis_result['faces_by_frame']:
+            if 0 <= face_index < len(analysis_result['faces_by_frame'][frame_key]):
+                analysis_result['faces_by_frame'][frame_key].pop(face_index)
+                
+                # Если массив пуст, удаляем запись кадра
+                if len(analysis_result['faces_by_frame'][frame_key]) == 0:
+                    del analysis_result['faces_by_frame'][frame_key]
+                
+                temp_storage.save_analysis_result(video_id, analysis_result)
+                return {"status": "success", "message": "Face removed successfully"}
+        
+        raise HTTPException(status_code=404, detail="Face not found")
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error removing face: {str(e)}")
+
+@app.post("/api/analysis/{video_id}/faces")
+async def update_face_detection(video_id: str, request: Dict[str, Any]):
+    """Обновляет результаты детекции лиц"""
+    try:
+        faces_by_frame = request.get('faces_by_frame', {})
+        temp_storage.save_analysis_result(video_id, {'faces_by_frame': faces_by_frame})
+        return {"status": "updated", "message": "Face detection updated"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating faces: {str(e)}")
+
+@app.post("/api/analysis/{video_id}/update")
+async def update_analysis_result(video_id: str, request: Dict[str, Any]):
+    """Обновляет результаты анализа на сервере"""
+    try:
+        faces_by_frame = request.get('faces_by_frame', {})
+        
+        print(f"🔄 Updating analysis for video {video_id}")
+        print(f"📊 New faces_by_frame keys: {list(faces_by_frame.keys())}")
+        
+        # Получаем текущий результат анализа
+        current_result = temp_storage.get_analysis_result(video_id)
+        if not current_result:
+            raise HTTPException(status_code=404, detail="Analysis results not found")
+        
+        # Обновляем только faces_by_frame, сохраняя остальную информацию
+        current_result['faces_by_frame'] = faces_by_frame
+        
+        # Сохраняем обновленные результаты
+        temp_storage.save_analysis_result(video_id, current_result)
+        
+        print(f"✅ Analysis updated successfully. Total frames with faces: {len(faces_by_frame)}")
+        
+        return {"status": "updated", "message": "Analysis results updated successfully"}
+    except Exception as e:
+        print(f"❌ Error updating analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating analysis: {str(e)}")
+
 @app.get("/api/status/{video_id}", response_model=StatusResponse)
 async def get_processing_status(video_id: str):
     """Возвращает статус обработки видео"""
@@ -205,13 +287,9 @@ async def get_processing_status(video_id: str):
     
     # Формируем URL для скачивания если видео готово
     download_url = None
-    preview_url = None
     
     if session_info['status'] == ProcessingStatus.COMPLETED:
         download_url = f"/api/download/{video_id}"
-    
-    if temp_storage.get_preview_path(video_id):
-        preview_url = f"/api/preview-file/{video_id}"
     
     return StatusResponse(
         video_id=video_id,
@@ -219,7 +297,6 @@ async def get_processing_status(video_id: str):
         progress=session_info['progress'],
         message=session_info['message'],
         download_url=download_url,
-        preview_url=preview_url,
         error=None
     )
 
@@ -232,15 +309,6 @@ async def download_video(video_id: str):
     
     filename = f"blurred_{temp_storage.sessions[video_id]['original_filename']}"
     return FileResponse(output_path, filename=filename)
-
-@app.get("/api/preview-file/{video_id}")
-async def get_preview_video(video_id: str):
-    """Возвращает превью видео"""
-    preview_path = temp_storage.get_preview_path(video_id)
-    if not preview_path or not os.path.exists(preview_path):
-        raise HTTPException(status_code=404, detail="Preview not found")
-    
-    return FileResponse(preview_path, filename="preview.mp4")
 
 # Фоновые задачи
 async def perform_analysis(video_id: str, video_path: str):
@@ -266,19 +334,14 @@ async def perform_processing(video_id: str, video_path: str, masks_data: Dict, b
         if not analysis_result:
             raise Exception("Analysis results not found")
         
-        # Обрабатываем видео
+        # Обрабатываем видео (файл будет перезаписываться при каждом вызове)
         output_path = os.path.join(temp_storage.get_session_dir(video_id), "processed_video.mp4")
-        
-        def progress_callback(percent):
-            progress = 50 + (percent * 0.5)  # От 50% до 100%
-            temp_storage.update_session_status(video_id, ProcessingStatus.PROCESSING, f"Processing... {percent:.1f}%", progress)
         
         success = processor.process_video(
             input_path=video_path,
             output_path=output_path,
-            masks_data=masks_data,  # Используем уже преобразованные данные
+            masks_data=masks_data,
             blur_strength=blur_strength,
-            progress_callback=progress_callback
         )
         
         if success:
@@ -289,7 +352,7 @@ async def perform_processing(video_id: str, video_path: str, masks_data: Dict, b
             
     except Exception as e:
         temp_storage.update_session_status(video_id, ProcessingStatus.ERROR, f"Processing failed: {str(e)}")
-
+        
 @app.get("/")
 async def root():
     """Перенаправляет на фронтенд"""
@@ -297,4 +360,4 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="localhost", port=8000)

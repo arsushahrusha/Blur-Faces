@@ -2,84 +2,78 @@ import cv2
 import numpy as np
 import json
 import os
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 from dataclasses import dataclass
 import logging
+import time
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 @dataclass
 class FaceBoundingBox:
-    """Класс для представления ограничивающего прямоугольника лица"""
     x: int
     y: int
     width: int
     height: int
-    confidence: float = 1.0
 
 class VideoProcessor:
-    """Основной класс для обработки видео и размытия лиц с использованием dlib"""
-    
-    def __init__(self, use_cnn: bool = False):
-        """
-        Инициализация детектора лиц dlib
+    def __init__(self):
+        """Инициализация ТОЛЬКО с Haar cascade"""
+        self.detector_type = 'haar'
         
-        Args:
-            use_cnn: Использовать ли CNN модель (точнее но медленнее)
+        # Загружаем Haar cascade
+        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        self.face_cascade = cv2.CascadeClassifier(cascade_path)
+        
+        if self.face_cascade.empty():
+            raise RuntimeError("Failed to load Haar cascade detector")
+        
+        logger.info("✅ Haar cascade face detector initialized")
+
+    def detect_faces(self, frame: np.ndarray) -> List[FaceBoundingBox]:
         """
+        Детекция лиц с помощью Haar cascade
+        """
+        h, w = frame.shape[:2]
+        faces = []
+        
         try:
-            import dlib
-            self.dlib = dlib
-            self.detector = None
-            self.cnn_detector = None
+            # Конвертируем в grayscale (требование Haar cascade)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             
-            if use_cnn:
-                # Пытаемся загрузить CNN модель
-                cnn_model_path = self._find_cnn_model()
-                if cnn_model_path:
-                    logger.info("Using dlib CNN face detector")
-                    self.cnn_detector = dlib.cnn_face_detection_model_v1(cnn_model_path)
-                else:
-                    logger.warning("CNN model not found. Using HOG detector")
-                    self.detector = dlib.get_frontal_face_detector()
-            else:
-                logger.info("Using dlib HOG face detector")
-                self.detector = dlib.get_frontal_face_detector()
+            # Детекция лиц с оптимальными параметрами
+            detected_faces = self.face_cascade.detectMultiScale(
+                gray,
+                scaleFactor=1.1,      # Чувствительность к масштабу
+                minNeighbors=4,       # Качество детекции
+                minSize=(10, 10),     # Минимальный размер лица
+                flags=cv2.CASCADE_SCALE_IMAGE
+            )
+            
+            # Обрабатываем найденные лица
+            for (x, y, w, h) in detected_faces:
+                # Добавляем margin вокруг лица
+                margin_w = int(w * 0.2)
+                margin_h = int(h * 0.25)
                 
-        except ImportError:
-            raise ImportError("dlib not available. Please install: pip install dlib")
-    
-    def _find_cnn_model(self) -> Optional[str]:
-        """Пытается найти CNN модель dlib"""
-        possible_paths = [
-            "mmod_human_face_detector.dat",
-            "./mmod_human_face_detector.dat",
-            "models/mmod_human_face_detector.dat",
-            os.path.join(os.path.dirname(__file__), "mmod_human_face_detector.dat"),
-            os.path.join(os.path.dirname(__file__), "models", "mmod_human_face_detector.dat")
-        ]
+                faces.append(FaceBoundingBox(
+                    x=max(0, x - margin_w),
+                    y=max(0, y - margin_h),
+                    width=min(frame.shape[1], w + 2 * margin_w),
+                    height=min(frame.shape[0], h + 2 * margin_h),
+                ))
+                
+            logger.debug(f"Detected {len(faces)} faces in frame")
+            
+        except Exception as e:
+            logger.error(f"Error in face detection: {e}")
         
-        for path in possible_paths:
-            if os.path.exists(path):
-                logger.info(f"Found CNN model at: {path}")
-                return path
-        
-        logger.warning("CNN model file 'mmod_human_face_detector.dat' not found.")
-        return None
-    
+        return faces
+
     def analyze_video(self, video_path: str, output_json_path: Optional[str] = None) -> Dict:
         """
-        Анализирует видео и обнаруживает лица в кадрах с помощью dlib
-        
-        Args:
-            video_path: Путь к исходному видео файлу
-            output_json_path: Путь для сохранения результатов анализа (опционально)
-            frame_skip: Анализировать каждый N-ый кадр (для ускорения)
-            
-        Returns:
-            Словарь с результатами анализа
+        Анализ видео для обнаружения лиц
         """
         if not os.path.exists(video_path):
             raise FileNotFoundError(f"Video file not found: {video_path}")
@@ -91,145 +85,132 @@ class VideoProcessor:
         # Получаем информацию о видео
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        duration = total_frames / fps if fps > 0 else 0
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
-        logger.info(f"Analyzing video: {video_path}")
-        logger.info(f"Resolution: {width}x{height}, FPS: {fps}, Duration: {duration:.2f}s")
+        logger.info(f"ANALYSIS: {total_frames} frames, {fps} FPS, {width}x{height}")
+        
+        # Настройки анализа
+        frame_skip = 3          # Анализируем каждый 3-й кадр
+        target_width = 640       # Разрешение для анализа
         
         faces_by_frame = {}
+        previous_faces = []      # Для интерполяции между кадрами
         frame_number = 0
+        
+        start_time = time.time()
         
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-
-            faces = self.detect_faces(frame)
-            if faces:
-                faces_by_frame[str(frame_number)] = [
-                    {'x': face.x, 'y': face.y, 'width': face.width, 
-                     'height': face.height, 'confidence': face.confidence}
-                    for face in faces
-                ]
+            
+            current_faces = []
+            
+            # Анализируем кадр с заданной частотой
+            if frame_number % frame_skip == 0:
+                # Уменьшаем разрешение для скорости
+                analysis_frame = self._resize_frame(frame, target_width)
+                current_faces = self.detect_faces(analysis_frame)
                 
+                # Масштабируем координаты обратно к исходному размеру
+                if current_faces:
+                    scale_w = width / analysis_frame.shape[1]
+                    scale_h = height / analysis_frame.shape[0]
+                    
+                    scaled_faces = []
+                    for face in current_faces:
+                        scaled_faces.append(FaceBoundingBox(
+                            x=int(face.x * scale_w),
+                            y=int(face.y * scale_h),
+                            width=int(face.width * scale_w),
+                            height=int(face.height * scale_h),
+                        ))
+                    current_faces = scaled_faces
+                
+                previous_faces = current_faces
+            else:
+                # Используем лица из предыдущего кадра для плавности
+                current_faces = previous_faces
+            
+            # Сохраняем результаты
+            if current_faces:
+                faces_by_frame[str(frame_number)] = [
+                    {
+                        'x': f.x, 
+                        'y': f.y, 
+                        'width': f.width, 
+                        'height': f.height,
+                    }
+                    for f in current_faces
+                ]
+            
+            # Логируем прогресс
             if frame_number % 100 == 0:
-                logger.info(f"Processed frame {frame_number}/{total_frames} - found {len(faces)} faces")
+                elapsed = time.time() - start_time
+                frames_per_sec = frame_number / elapsed if elapsed > 0 else 0
+                logger.info(f"Frame {frame_number}/{total_frames} "
+                           f"({frames_per_sec:.1f} FPS) - "
+                           f"Found {len(faces_by_frame)} frames with faces")
             
             frame_number += 1
         
         cap.release()
         
-        # Создаем результат анализа
-        analysis_result = {
+        total_time = time.time() - start_time
+        logger.info(f"✅ Analysis completed in {total_time:.1f} seconds")
+        logger.info(f"📊 Results: {len(faces_by_frame)}/{total_frames} frames contain faces")
+        
+        # Формируем результат
+        result = {
             'video_info': {
                 'file_path': video_path,
                 'fps': fps,
                 'total_frames': total_frames,
-                'duration': duration,
+                'duration': total_frames / fps if fps > 0 else 0,
                 'width': width,
                 'height': height
             },
             'faces_by_frame': faces_by_frame,
             'analysis_settings': {
-                'total_analyzed_frames': len(faces_by_frame)
+                'frame_skip': frame_skip,
+                'detector_type': self.detector_type,
+                'processing_time': total_time
             }
         }
         
-        # Сохраняем результаты в JSON если указан путь
+        # Сохраняем JSON если указан путь
         if output_json_path:
-            os.makedirs(os.path.dirname(output_json_path), exist_ok=True)
-            with open(output_json_path, 'w', encoding='utf-8') as f:
-                json.dump(analysis_result, f, indent=2, ensure_ascii=False)
-            logger.info(f"Analysis results saved to: {output_json_path}")
+            self._save_to_json(result, output_json_path)
         
-        logger.info(f"Analysis complete. Detected faces in {len(faces_by_frame)} frames")
-        return analysis_result
-    
-    def detect_faces(self, frame: np.ndarray) -> List[FaceBoundingBox]:
-        """
-        Обнаруживает лица в одном кадре с помощью dlib
-        
-        Args:
-            frame: Кадр видео в формате BGR
-            
-        Returns:
-            Список ограничивающих прямоугольников лиц
-        """
-        # Конвертируем BGR в RGB (dlib работает с RGB)
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        faces = []
-        height, width = frame.shape[:2]
-        
+        return result
+
+    def _resize_frame(self, frame: np.ndarray, target_width: int) -> np.ndarray:
+        """Уменьшает кадр для быстрой обработки"""
+        h, w = frame.shape[:2]
+        if w > target_width:
+            new_w = target_width
+            new_h = int(h * target_width / w)
+            return cv2.resize(frame, (new_w, new_h))
+        return frame
+
+    def _save_to_json(self, data: Dict, output_path: str):
+        """Сохраняет данные в JSON файл"""
         try:
-            if self.cnn_detector:
-                # Используем CNN детектор (более точный)
-                dets = self.cnn_detector(rgb_frame, 0)
+            output_dir = os.path.dirname(output_path)
+            if output_dir and not os.path.exists(output_dir):
+                os.makedirs(output_dir, exist_ok=True)
                 
-                for detection in dets:
-                    rect = detection.rect
-                    confidence = detection.confidence
-                    
-                    # Пропускаем лица с низкой уверенностью
-                    if confidence < 0.5:
-                        continue
-                    
-                    x = rect.left()
-                    y = rect.top()
-                    w = rect.width()
-                    h = rect.height()
-                    
-                    # Добавляем margin вокруг лица
-                    margin = 0.15
-                    x = max(0, int(x - w * margin))
-                    y = max(0, int(y - h * margin))
-                    w = min(width - x, int(w * (1 + 2 * margin)))
-                    h = min(height - y, int(h * (1 + 2 * margin)))
-                    
-                    faces.append(FaceBoundingBox(x, y, w, h, confidence))
-                    
-            elif self.detector:
-                # Используем HOG детектор (быстрый)
-                # Второй аргумент - увеличение изображения для поиска (1 = нет увеличения)
-                dets = self.detector(rgb_frame, 1)
-                
-                for rect in dets:
-                    x = rect.left()
-                    y = rect.top()
-                    w = rect.width()
-                    h = rect.height()
-                    
-                    # Добавляем margin
-                    margin = 0.2
-                    x = max(0, int(x - w * margin))
-                    y = max(0, int(y - h * margin))
-                    w = min(width - x, int(w * (1 + 2 * margin)))
-                    h = min(height - y, int(h * (1 + 2 * margin)))
-                    
-                    faces.append(FaceBoundingBox(x, y, w, h, 1.0))
-                    
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            logger.info(f"💾 Analysis results saved to: {output_path}")
         except Exception as e:
-            logger.error(f"Error in face detection: {e}")
-        
-        return faces
-    
+            logger.error(f"Error saving JSON: {e}")
+
     def process_video(self, input_path: str, output_path: str, 
-                     masks_data: Dict, blur_strength: int = 15,
-                     progress_callback: Optional[callable] = None) -> bool:
+                     masks_data: Dict, blur_strength: int = 25) -> bool:
         """
         Обрабатывает видео: применяет размытие к обнаруженным лицам
-        
-        Args:
-            input_path: Путь к исходному видео
-            output_path: Путь для сохранения обработанного видео
-            masks_data: Словарь с масками для размытия {frame_number: [masks]}
-            blur_strength: Сила размытия (радиус Gaussian blur)
-            progress_callback: Функция для отслеживания прогресса
-            
-        Returns:
-            True если обработка завершена успешно
         """
         if not os.path.exists(input_path):
             raise FileNotFoundError(f"Input video not found: {input_path}")
@@ -238,160 +219,116 @@ class VideoProcessor:
         if not cap.isOpened():
             raise ValueError(f"Cannot open input video: {input_path}")
         
-        # Получаем параметры видео
+        # Параметры видео
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
-        # Создаем VideoWriter для выходного файла
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        # Создаем выходное видео
+        fourcc = cv2.VideoWriter_fourcc(*'avc1')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         
         if not out.isOpened():
             cap.release()
             raise ValueError(f"Cannot create output video: {output_path}")
         
-        logger.info(f"Processing video: {input_path} -> {output_path}")
-        logger.info(f"Blur strength: {blur_strength}, Total frames: {total_frames}")
+        logger.info(f"PROCESSING: {total_frames} frames -> {output_path}")
         
+        # Подготавливаем маски
+        compiled_masks = {}
+        for frame_key, masks in masks_data.items():
+            try:
+                frame_num = int(frame_key)
+                compiled_masks[frame_num] = [
+                    (mask['x'], mask['y'], mask['width'], mask['height'])
+                    for mask in masks
+                ]
+            except (ValueError, KeyError):
+                continue
+        
+        # Обработка кадров
         frame_number = 0
+        start_time = time.time()
         
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
             
-            # Получаем маски для текущего кадра
-            frame_masks = masks_data.get(str(frame_number), [])
+            # Применяем размытие если есть маски для этого кадра
+            if frame_number in compiled_masks:
+                masks = compiled_masks[frame_number]
+                frame = self._apply_blur(frame, masks, blur_strength)
             
-            if frame_masks:
-                # Преобразуем словари обратно в FaceBoundingBox объекты
-                masks = [
-                    FaceBoundingBox(
-                        x=mask['x'], y=mask['y'], 
-                        width=mask['width'], height=mask['height'],
-                        confidence=mask.get('confidence', 1.0)
-                    ) for mask in frame_masks
-                ]
-                # Применяем размытие
-                frame = self.apply_blur_to_frame(frame, masks, blur_strength)
-            
-            # Записываем обработанный кадр
             out.write(frame)
-            
-            # Вызываем callback прогресса
-            if progress_callback and frame_number % 10 == 0:
-                progress = (frame_number + 1) / total_frames * 100
-                progress_callback(progress)
-            
             frame_number += 1
+            
+            if frame_number % 60 == 0:  # Логируем каждую минуту
+                elapsed = time.time() - start_time
+                progress = (frame_number / total_frames) * 100
+                logger.info(f"Processing: {progress:.1f}% complete")
         
         cap.release()
         out.release()
         
-        logger.info(f"Video processing complete: {output_path}")
-        return True
-    
-    def apply_blur_to_frame(self, frame: np.ndarray, masks: List[FaceBoundingBox], 
-                           blur_strength: int) -> np.ndarray:
-        """
-        Применяет размытие к областям с лицами в кадре
+        total_time = time.time() - start_time
+        logger.info(f"✅ Processing completed in {total_time:.1f} seconds")
+        logger.info(f"💾 Output saved to: {output_path}")
         
-        Args:
-            frame: Исходный кадр
-            masks: Список масок для размытия
-            blur_strength: Сила размытия
-            
-        Returns:
-            Кадр с примененным размытием
-        """
+        return True
+
+    def _apply_blur(self, frame: np.ndarray, masks: list, blur_strength: int) -> np.ndarray:
+        """Применяет размытие к областям с лицами"""
         if not masks:
             return frame
         
-        # Создаем копию кадра для модификации
         result_frame = frame.copy()
         
-        for mask in masks:
-            # Убеждаемся, что координаты в пределах кадра
-            x1 = max(0, mask.x)
-            y1 = max(0, mask.y)
-            x2 = min(frame.shape[1], mask.x + mask.width)
-            y2 = min(frame.shape[0], mask.y + mask.height)
+        # Используем blur_strength для расчета размера ядра
+        # Делаем ядро нечетным и зависимым от blur_strength
+        kernel_size = max(3, blur_strength * 2 - 1)  # Минимальный размер 3, увеличиваем с blur_strength
+        kernel_size = kernel_size + 1 if kernel_size % 2 == 0 else kernel_size  # Делаем нечетным
+        
+        for x, y, w, h in masks:
+            # Проверяем границы
+            x1, y1 = max(0, x), max(0, y)
+            x2, y2 = min(frame.shape[1], x + w), min(frame.shape[0], y + h)
             
-            # Извлекаем область интереса (ROI)
-            roi = result_frame[y1:y2, x1:x2]
-            
-            if roi.size > 0:
-                # Применяем Gaussian blur
-                kernel_size = max(3, blur_strength * 2 + 1)
-                blurred_roi = cv2.GaussianBlur(roi, (kernel_size, kernel_size), 0)
-                
-                # Вставляем размытую область обратно
-                result_frame[y1:y2, x1:x2] = blurred_roi
+            if x2 > x1 and y2 > y1:
+                roi = result_frame[y1:y2, x1:x2]
+                if roi.size > 0:
+                    blurred_roi = cv2.GaussianBlur(roi, (kernel_size, kernel_size), 0)
+                    result_frame[y1:y2, x1:x2] = blurred_roi
         
         return result_frame
+
+# Тестирование
+if __name__ == "__main__":
+    processor = VideoProcessor()
     
-    def generate_preview(self, input_path: str, output_path: str, 
-                        masks_data: Dict, blur_strength: int = 15,
-                        preview_duration: int = 10) -> bool:
-        """
-        Генерирует короткий предпросмотр обработанного видео
-        
-        Args:
-            input_path: Путь к исходному видео
-            output_path: Путь для сохранения превью
-            masks_data: Словарь с масками
-            blur_strength: Сила размытия
-            preview_duration: Длительность превью в секундах
-            
-        Returns:
-            True если успешно
-        """
-        cap = cv2.VideoCapture(input_path)
-        if not cap.isOpened():
-            raise ValueError(f"Cannot open video: {input_path}")
-        
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        
-        # Вычисляем количество кадров для превью
-        preview_frames = min(total_frames, int(preview_duration * fps))
-        
-        # Уменьшаем разрешение для быстрого превью
-        preview_width = min(640, width)
-        preview_height = int(preview_width * height / width)
-        
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (preview_width, preview_height))
-        
-        logger.info(f"Generating preview: {preview_duration}s, {preview_frames} frames")
-        
-        for frame_num in range(preview_frames):
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            # Получаем маски для текущего кадра
-            frame_masks = masks_data.get(str(frame_num), [])
-            
-            if frame_masks:
-                masks = [
-                    FaceBoundingBox(
-                        x=mask['x'], y=mask['y'], 
-                        width=mask['width'], height=mask['height']
-                    ) for mask in frame_masks
-                ]
-                frame = self.apply_blur_to_frame(frame, masks, blur_strength)
-            
-            # Изменяем размер для превью
-            frame_preview = cv2.resize(frame, (preview_width, preview_height))
-            out.write(frame_preview)
-        
-        cap.release()
-        out.release()
-        
-        logger.info(f"Preview generated: {output_path}")
-        return True
+    # Тестируем на разных видео
+    test_videos = [
+        "C:/Users/Саныч/Desktop/videos/678558_University_College_1920x1080.mp4",
+        "test_video1.mp4",
+        "test_video2.mp4"
+    ]
+    
+    for video_path in test_videos:
+        if os.path.exists(video_path):
+            print(f"\n=== Analyzing {video_path} ===")
+            try:
+                analysis = processor.analyze_video(video_path, "analysis.json")
+                face_frames = len(analysis['faces_by_frame'])
+                total_frames = analysis['video_info']['total_frames']
+                print(f"Results: {face_frames}/{total_frames} frames have faces")
+                
+                if face_frames > 0:
+                    output_path = video_path.replace('.mp4', '_blurred.mp4')
+                    processor.process_video(video_path, output_path, analysis['faces_by_frame'])
+                    print(f"Processed: {output_path}")
+                else:
+                    print("No faces found - skipping processing")
+                    
+            except Exception as e:
+                print(f"Error processing {video_path}: {e}")

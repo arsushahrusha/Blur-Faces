@@ -1,4 +1,3 @@
-# temp_storage.py - ОБНОВЛЕННАЯ ВЕРСИЯ
 import os
 import shutil
 import json
@@ -90,11 +89,25 @@ class TempStorage:
         with open(json_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     
-    def save_preview_video(self, video_id: str, preview_path: str) -> str:
-        """Сохраняет путь к превью видео"""
-        self.sessions[video_id]['files']['preview_video'] = preview_path
-        return preview_path
-    
+    def get_editor_state(self, video_id: str) -> Optional[Dict]:
+        """Возвращает состояние редактора"""
+        session = self.sessions.get(video_id)
+        if session:
+            return session.get('editor_state')
+        return None
+
+    def save_editor_state(self, video_id: str, editor_state: Dict):
+        """Сохраняет состояние редактора"""
+        if video_id in self.sessions:
+            self.sessions[video_id]['editor_state'] = editor_state
+            self.sessions[video_id]['modified_at'] = datetime.now()
+
+    def update_face_detection(self, video_id: str, faces_by_frame: Dict):
+        """Обновляет данные о лицах"""
+        if video_id in self.sessions and 'analysis_result' in self.sessions[video_id]:
+            self.sessions[video_id]['analysis_result']['faces_by_frame'] = faces_by_frame
+            self.sessions[video_id]['modified_at'] = datetime.now()
+
     def save_output_video(self, video_id: str, output_path: str) -> str:
         """Сохраняет путь к обработанному видео"""
         self.sessions[video_id]['files']['output_video'] = output_path
@@ -115,10 +128,7 @@ class TempStorage:
     def get_video_path(self, video_id: str) -> Optional[str]:
         """Возвращает путь к оригинальному видео"""
         return self.sessions.get(video_id, {}).get('files', {}).get('uploaded_video')
-    
-    def get_preview_path(self, video_id: str) -> Optional[str]:
-        """Возвращает путь к превью"""
-        return self.sessions.get(video_id, {}).get('files', {}).get('preview_video')
+
     
     def get_output_path(self, video_id: str) -> Optional[str]:
         """Возвращает путь к обработанному видео"""

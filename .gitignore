@@ -4,28 +4,21 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdk/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual environments
-.venv/
-venv/
 env/
+venv/
 ENV/
+env.bak/
+venv.bak/
+
+# Temp files
+web_temp_uploads/
+temp_*/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.jpg
+*.png
 
 # IDE
 .vscode/
@@ -35,22 +28,7 @@ ENV/
 
 # OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
-
-# Project specific
-web_temp_uploads/
-temp_uploads/
-*.mp4
-*.avi
-*.mov
-*.mkv
-*.jpg
-*.png
 
 # Logs
 *.log
@@ -62,9 +40,4 @@ logs/
 
 # Environment variables
 .env
-.env.local
-.env.production
-
-# Temporary files
-*.tmp
-*.temp
+.secrets
