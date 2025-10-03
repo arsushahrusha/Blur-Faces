@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Virtual environments
 .venv/
 venv/
@@ -36,4 +37,44 @@ Thumbs.db
 
 # Logs
 *.log
+=======
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Temp files
+web_temp_uploads/
+temp_*/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.jpg
+*.png
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Logs
+*.log
+>>>>>>> 0891e9bbdd840bd7c397097da5e27d67392afe1c
 logs/

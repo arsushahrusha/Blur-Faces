@@ -208,10 +208,12 @@ class VideoProcessor:
             logger.error(f"Error saving JSON: {e}")
 
     def process_video(self, input_path: str, output_path: str, 
-                     masks_data: Dict, blur_strength: int = 25) -> bool:
+                        masks_data: Dict, blur_strength: int = 25) -> bool:
         """
-        Обрабатывает видео: применяет размытие к обнаруженным лицам
+        Прямая обработка с использованием OpenCV + FFmpeg pipe
         """
+        import subprocess
+        
         if not os.path.exists(input_path):
             raise FileNotFoundError(f"Input video not found: {input_path}")
         
@@ -219,21 +221,30 @@ class VideoProcessor:
         if not cap.isOpened():
             raise ValueError(f"Cannot open input video: {input_path}")
         
-        # Параметры видео
         fps = cap.get(cv2.CAP_PROP_FPS)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
-        # Создаем выходное видео
-        fourcc = cv2.VideoWriter_fourcc(*'avc1')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        # Команда FFmpeg для кодирования в H.264
+        ffmpeg_cmd = [
+            'ffmpeg', '-y',
+            '-f', 'rawvideo',
+            '-vcodec', 'rawvideo',
+            '-pix_fmt', 'bgr24',
+            '-s', f'{width}x{height}',
+            '-r', str(fps),
+            '-i', '-',  # Читать из stdin
+            '-c:v', 'libx264',
+            '-preset', 'medium',
+            '-crf', '23',
+            '-pix_fmt', 'yuv420p',
+            '-f', 'mp4',
+            output_path
+        ]
         
-        if not out.isOpened():
-            cap.release()
-            raise ValueError(f"Cannot create output video: {output_path}")
-        
-        logger.info(f"PROCESSING: {total_frames} frames -> {output_path}")
+        # Запускаем FFmpeg процесс
+        ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
         
         # Подготавливаем маски
         compiled_masks = {}
@@ -251,31 +262,37 @@ class VideoProcessor:
         frame_number = 0
         start_time = time.time()
         
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            # Применяем размытие если есть маски для этого кадра
-            if frame_number in compiled_masks:
-                masks = compiled_masks[frame_number]
-                frame = self._apply_blur(frame, masks, blur_strength)
-            
-            out.write(frame)
-            frame_number += 1
-            
-            if frame_number % 60 == 0:  # Логируем каждую минуту
-                elapsed = time.time() - start_time
-                progress = (frame_number / total_frames) * 100
-                logger.info(f"Processing: {progress:.1f}% complete")
-        
-        cap.release()
-        out.release()
+        try:
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                
+                # Применяем размытие если есть маски
+                if frame_number in compiled_masks:
+                    masks = compiled_masks[frame_number]
+                    frame = self._apply_blur(frame, masks, blur_strength)
+                
+                # Отправляем кадр в FFmpeg
+                ffmpeg_process.stdin.write(frame.tobytes())
+                
+                frame_number += 1
+                
+                if frame_number % 60 == 0:
+                    elapsed = time.time() - start_time
+                    progress = (frame_number / total_frames) * 100
+                    logger.info(f"Processing: {progress:.1f}% complete")
+                    
+        except Exception as e:
+            logger.error(f"Error during processing: {e}")
+            return False
+        finally:
+            cap.release()
+            ffmpeg_process.stdin.close()
+            ffmpeg_process.wait()
         
         total_time = time.time() - start_time
-        logger.info(f"✅ Processing completed in {total_time:.1f} seconds")
-        logger.info(f"💾 Output saved to: {output_path}")
-        
+        logger.info(f"✅ H.264 processing completed in {total_time:.1f} seconds")
         return True
 
     def _apply_blur(self, frame: np.ndarray, masks: list, blur_strength: int) -> np.ndarray:

@@ -4,7 +4,7 @@ import json
 import uuid
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
-from models import ProcessingStatus
+from .models import ProcessingStatus
 
 class TempStorage:
     """Управление временными файлами для веб-версии"""

@@ -1,32 +1,32 @@
-FROM python:3.9-slim
+FROM python:3.9-slim-bullseye
 
-# Устанавливаем системные зависимости для OpenCV
+# Установка FFmpeg с поддержкой H.264
 RUN apt-get update && apt-get install -y \
-    libgl1 \
-    libglib2.0-0 \
+    python3-opencv \
+    libopencv-dev \
+    ffmpeg \
+    x264 \
+    libx264-dev \
     libsm6 \
     libxext6 \
     libxrender-dev \
-    ffmpeg \
+    libgl1-mesa-glx \
+    libavcodec-dev \
+    libavformat-dev \
+    libswscale-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Создаем рабочую директорию
 WORKDIR /app
 
-# Копируем requirements первыми для кэширования
 COPY requirements.txt .
 
-# Устанавливаем Python зависимости
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем ВСЮ структуру проекта
-COPY . .
+COPY backend/ ./backend/
+COPY static/ ./static/
 
-# Создаем директорию для статических файлов
-RUN mkdir -p static
+RUN mkdir -p /app/temp_uploads
 
-# Открываем порт
 EXPOSE 8000
 
-# Запускаем приложение из папки backend
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
