@@ -5,9 +5,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from typing import Dict, Any
 
-from video_processor import VideoProcessor
-from models import *
-from temp_storage import temp_storage
+from .video_processor import VideoProcessor
+from .models import *
+from .temp_storage import temp_storage
 
 app = FastAPI(title="Video Face Blurring API", version="1.0.0")
 
