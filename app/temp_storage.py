@@ -7,24 +7,19 @@ from datetime import datetime, timedelta
 from .models import ProcessingStatus
 
 class TempStorage:
-    """Управление временными файлами для веб-версии"""
     
     def __init__(self, base_temp_dir: str = "web_temp_uploads"):
         self.base_temp_dir = base_temp_dir
         self.sessions: Dict[str, Dict] = {}
         
-        # Создаем базовую директорию
         os.makedirs(self.base_temp_dir, exist_ok=True)
         
-        # Запускаем очистку старых файлов
         self._cleanup_old_files()
     
     def generate_video_id(self) -> str:
-        """Генерирует уникальный идентификатор видео"""
         return str(uuid.uuid4())
     
     def create_session(self, video_id: str, original_filename: str) -> str:
-        """Создает новую сессию обработки"""
         session_dir = os.path.join(self.base_temp_dir, video_id)
         os.makedirs(session_dir, exist_ok=True)
         
@@ -47,7 +42,6 @@ class TempStorage:
         return session_dir
     
     def save_uploaded_file(self, video_id: str, file_content: bytes) -> str:
-        """Сохраняет загруженный видеофайл"""
         if video_id not in self.sessions:
             raise ValueError(f"Session {video_id} not found")
         
@@ -63,11 +57,9 @@ class TempStorage:
         return file_path
     
     def get_session_dir(self, video_id: str) -> str:
-        """Возвращает путь к директории сессии"""
         return os.path.join(self.base_temp_dir, video_id)
     
     def save_analysis_result(self, video_id: str, analysis_data: Dict[str, Any]) -> str:
-        """Сохраняет результаты анализа в JSON"""
         session_dir = self.get_session_dir(video_id)
         json_path = os.path.join(session_dir, "analysis_result.json")
         
@@ -78,7 +70,6 @@ class TempStorage:
         return json_path
     
     def get_analysis_result(self, video_id: str) -> Optional[Dict[str, Any]]:
-        """Загружает результаты анализа из JSON"""
         if video_id not in self.sessions:
             return None
         
@@ -90,52 +81,43 @@ class TempStorage:
             return json.load(f)
     
     def get_editor_state(self, video_id: str) -> Optional[Dict]:
-        """Возвращает состояние редактора"""
         session = self.sessions.get(video_id)
         if session:
             return session.get('editor_state')
         return None
 
     def save_editor_state(self, video_id: str, editor_state: Dict):
-        """Сохраняет состояние редактора"""
         if video_id in self.sessions:
             self.sessions[video_id]['editor_state'] = editor_state
             self.sessions[video_id]['modified_at'] = datetime.now()
 
     def update_face_detection(self, video_id: str, faces_by_frame: Dict):
-        """Обновляет данные о лицах"""
         if video_id in self.sessions and 'analysis_result' in self.sessions[video_id]:
             self.sessions[video_id]['analysis_result']['faces_by_frame'] = faces_by_frame
             self.sessions[video_id]['modified_at'] = datetime.now()
 
     def save_output_video(self, video_id: str, output_path: str) -> str:
-        """Сохраняет путь к обработанному видео"""
         self.sessions[video_id]['files']['output_video'] = output_path
         return output_path
     
     def get_session_info(self, video_id: str) -> Optional[Dict]:
-        """Возвращает информацию о сессии"""
         return self.sessions.get(video_id)
     
     def update_session_status(self, video_id: str, status: ProcessingStatus, 
                             message: str = "", progress: float = 0.0):
-        """Обновляет статус сессии"""
         if video_id in self.sessions:
             self.sessions[video_id]['status'] = status
             self.sessions[video_id]['message'] = message
             self.sessions[video_id]['progress'] = progress
     
     def get_video_path(self, video_id: str) -> Optional[str]:
-        """Возвращает путь к оригинальному видео"""
         return self.sessions.get(video_id, {}).get('files', {}).get('uploaded_video')
 
     
     def get_output_path(self, video_id: str) -> Optional[str]:
-        """Возвращает путь к обработанному видео"""
         return self.sessions.get(video_id, {}).get('files', {}).get('output_video')
     
     def cleanup_session(self, video_id: str):
-        """Удаляет все файлы сессии"""
         if video_id in self.sessions:
             session_dir = self.get_session_dir(video_id)
             if os.path.exists(session_dir):
@@ -143,7 +125,6 @@ class TempStorage:
             del self.sessions[video_id]
     
     def _cleanup_old_files(self, hours_old: int = 24):
-        """Очищает файлы старше указанного количества часов"""
         cutoff_time = datetime.now() - timedelta(hours=hours_old)
         
         for video_id in list(self.sessions.keys()):
@@ -151,5 +132,4 @@ class TempStorage:
             if session['created_at'] < cutoff_time:
                 self.cleanup_session(video_id)
 
-# Глобальный экземпляр хранилища
 temp_storage = TempStorage()

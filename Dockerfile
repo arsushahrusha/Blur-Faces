@@ -1,6 +1,5 @@
 FROM python:3.9-slim-bullseye
 
-# Установка FFmpeg с поддержкой H.264
 RUN apt-get update && apt-get install -y \
     python3-opencv \
     libopencv-dev \
@@ -22,11 +21,11 @@ COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/ ./backend/
+COPY app/ ./app/
 COPY static/ ./static/
 
 RUN mkdir -p /app/temp_uploads
 
 EXPOSE 8000
 
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

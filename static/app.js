@@ -95,7 +95,7 @@ class VideoProcessorApp {
             console.error('Upload elements not found');
         }
 
-        // Analysis button
+        // Analiz BTN
         const analyzeBtn = document.getElementById('analyzeBtn');
         if (analyzeBtn) {
             analyzeBtn.addEventListener('click', () => {
@@ -103,7 +103,6 @@ class VideoProcessorApp {
             });
         }
 
-        // Blur strength slider
         const blurStrength = document.getElementById('blurStrength');
         if (blurStrength) {
             blurStrength.addEventListener('input', (e) => {
@@ -111,7 +110,7 @@ class VideoProcessorApp {
             });
         }
 
-        // Process button
+        // Process BTN
         const processBtn = document.getElementById('processBtn');
         if (processBtn) {
             processBtn.addEventListener('click', () => {
@@ -119,7 +118,7 @@ class VideoProcessorApp {
             });
         }
 
-        // Download button
+        // Download BTN
         const downloadBtn = document.getElementById('downloadBtn');
         if (downloadBtn) {
             downloadBtn.addEventListener('click', () => {
@@ -127,7 +126,7 @@ class VideoProcessorApp {
             });
         }
 
-        // New video button
+        // New vid BTN
         const newVideoBtn = document.getElementById('newVideoBtn');
         if (newVideoBtn) {
             newVideoBtn.addEventListener('click', () => {
@@ -187,7 +186,6 @@ class VideoProcessorApp {
 
             this.videoId = result.video_id;
 
-            // ИНИЦИАЛИЗАЦИЯ МАСШТАБИРОВАНИЯ - ДОБАВЛЕНО
             if (result.video_info) {
                 this.calculateScaleFactors(
                     result.video_info.width,
@@ -196,7 +194,6 @@ class VideoProcessorApp {
                 console.log(`🎯 Scale initialized: ${this.videoScaleX}x${this.videoScaleY} for video ${result.video_info.width}x${result.video_info.height}`);
             }
 
-            // Show file info
             const fileInfo = document.getElementById('fileInfo');
             if (fileInfo) {
                 fileInfo.innerHTML = `
@@ -210,14 +207,12 @@ class VideoProcessorApp {
                 fileInfo.classList.remove('hidden');
             }
 
-            // Setup original video
             const originalVideo = document.getElementById('originalVideo');
             if (originalVideo) {
                 const videoUrl = URL.createObjectURL(file);
                 originalVideo.src = videoUrl;
             }
 
-            // Move to next step
             this.showStep('analyze');
             this.showStatus('success', 'Video uploaded successfully! Click "Start Analysis" to detect faces.');
 
@@ -251,7 +246,6 @@ class VideoProcessorApp {
 
             console.log('Analysis started successfully');
 
-            // Poll for status
             this.pollAnalysisStatus();
 
         } catch (error) {
@@ -279,7 +273,6 @@ class VideoProcessorApp {
                 const status = await response.json();
                 console.log('Status response:', status);
 
-                // Update progress
                 if (progressFill) progressFill.style.width = `${status.progress}%`;
                 if (progressText) progressText.textContent = `${Math.round(status.progress)}% - ${status.message}`;
 
@@ -287,8 +280,7 @@ class VideoProcessorApp {
                     this.showStatus('success', 'Analysis completed! Faces detected successfully.', statusDiv);
                     this.analysisResult = await this.getAnalysisResult();
                     if (analyzeBtn) analyzeBtn.disabled = false;
-                    // ИСПРАВЛЕНИЕ: Переходим на шаг редактирования, а не сразу на обработку
-                    this.showStep('edit'); // Было: this.showStep('process');
+                    this.showStep('edit');
 
                     return true;
                 } else if (status.status === 'error') {
@@ -297,8 +289,6 @@ class VideoProcessorApp {
                     if (analyzeBtn) analyzeBtn.disabled = false;
                     return true;
                 }
-
-                // Continue polling
                 setTimeout(checkStatus, 1000);
                 return false;
 
@@ -330,7 +320,6 @@ class VideoProcessorApp {
     }
 
     async processVideo() {
-        // Если уже идет обработка, выходим
         if (this.isProcessing) {
             console.log('Processing already in progress');
             return;
@@ -369,7 +358,6 @@ class VideoProcessorApp {
 
             console.log('Processing started successfully with blur strength:', blurStrength);
 
-            // Poll for processing status
             this.pollProcessingStatus();
 
         } catch (error) {
@@ -394,28 +382,24 @@ class VideoProcessorApp {
                 const status = await response.json();
                 console.log('Processing status:', status);
 
-                // Update progress
                 if (progressFill) progressFill.style.width = `${status.progress}%`;
                 if (progressText) progressText.textContent = `${Math.round(status.progress)}% - ${status.message}`;
 
                 if (status.status === 'completed') {
                     const blurStrength = parseInt(document.getElementById('blurStrength').value);
-                    this.processVersion++; // Увеличиваем версию при каждой обработке
+                    this.processVersion++; 
 
                     this.showStatus('success', `Video processing completed with blur strength: ${blurStrength}! You can adjust blur strength and process again.`, statusDiv);
 
-                    // Load processed video into player с уникальным URL
                     const processedVideo = document.getElementById('processedVideo');
                     if (processedVideo) {
                         const downloadUrl = `/api/download/${this.videoId}?v=${this.processVersion}&t=${new Date().getTime()}`;
                         processedVideo.src = downloadUrl;
                         console.log('Processed video URL:', downloadUrl, 'Blur strength:', blurStrength);
 
-                        // Принудительно перезагружаем видео
                         processedVideo.load();
                     }
 
-                    // Разблокируем кнопку для повторной обработки
                     this.isProcessing = false;
                     if (processBtn) processBtn.disabled = false;
 
@@ -427,7 +411,6 @@ class VideoProcessorApp {
                     return true;
                 }
 
-                // Continue polling
                 setTimeout(checkStatus, 1000);
                 return false;
 
@@ -456,16 +439,13 @@ class VideoProcessorApp {
     resetApp() {
         console.log('Resetting app');
 
-        // Reset all state
         this.videoId = null;
         this.analysisResult = null;
         this.isProcessing = false;
         this.processVersion = 0;
 
-        // Reset UI
         this.showStep('upload');
 
-        // Clear file input
         const fileInput = document.getElementById('fileInput');
         if (fileInput) fileInput.value = '';
 
@@ -475,28 +455,24 @@ class VideoProcessorApp {
             fileInfo.innerHTML = '';
         }
 
-        // Clear videos
         const originalVideo = document.getElementById('originalVideo');
         if (originalVideo) originalVideo.src = '';
 
         const processedVideo = document.getElementById('processedVideo');
         if (processedVideo) processedVideo.src = '';
 
-        // Clear status messages
         const analyzeStatus = document.getElementById('analyzeStatus');
         if (analyzeStatus) analyzeStatus.innerHTML = '';
 
         const processStatus = document.getElementById('processStatus');
         if (processStatus) processStatus.innerHTML = '';
 
-        // Reset buttons
         const analyzeBtn = document.getElementById('analyzeBtn');
         if (analyzeBtn) analyzeBtn.disabled = false;
 
         const processBtn = document.getElementById('processBtn');
         if (processBtn) processBtn.disabled = false;
 
-        // Reset progress bars
         const analyzeProgressFill = document.getElementById('analyzeProgressFill');
         if (analyzeProgressFill) analyzeProgressFill.style.width = '0%';
 
@@ -509,7 +485,6 @@ class VideoProcessorApp {
         const processProgressText = document.getElementById('processProgressText');
         if (processProgressText) processProgressText.textContent = '0%';
 
-        // Reset blur strength
         const blurStrength = document.getElementById('blurStrength');
         const blurValue = document.getElementById('blurValue');
         if (blurStrength && blurValue) {
@@ -521,7 +496,6 @@ class VideoProcessorApp {
     showStep(stepName) {
         console.log('Showing step:', stepName);
 
-        // Hide all steps
         const steps = ['upload', 'analyze', 'edit', 'process'];
         steps.forEach(step => {
             const element = document.getElementById(`step-${step}`);
@@ -530,12 +504,10 @@ class VideoProcessorApp {
             }
         });
 
-        // Show selected step
         const currentStep = document.getElementById(`step-${stepName}`);
         if (currentStep) {
             currentStep.classList.remove('hidden');
 
-            // Если показываем редактор, инициализируем его
             if (stepName === 'edit') {
                 this.initializeEditor();
             }
@@ -582,14 +554,11 @@ class VideoProcessorApp {
             img.onload = () => {
                 console.log(`🖼️ [DEBUG] Image loaded, dimensions: ${img.width}x${img.height}`);
 
-                // 1. Сначала рисуем изображение
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-                // 2. Затем рисуем лица поверх изображения
                 this.drawFacesForFrame(frameNumber);
 
-                // 3. Сохраняем состояние для временного рисования
                 this.originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
                 URL.revokeObjectURL(imageUrl);
@@ -603,7 +572,6 @@ class VideoProcessorApp {
 
             img.src = imageUrl;
 
-            // Update UI
             document.getElementById('currentFrame').textContent = frameNumber;
             document.getElementById('frameNumber').textContent = frameNumber;
             this.updateFacesList(frameNumber);
@@ -619,33 +587,26 @@ class VideoProcessorApp {
         const ctx = canvas.getContext('2d');
         const frameKey = frameNumber.toString();
 
-        // НЕ очищаем canvas здесь! Изображение уже нарисовано
-
-        // Временно: рисуем красную рамку вокруг canvas для отладки
         ctx.strokeStyle = 'red';
         ctx.lineWidth = 2;
         ctx.strokeRect(0, 0, canvas.width, canvas.height);
 
         if (this.analysisResult.faces_by_frame[frameKey]) {
             this.analysisResult.faces_by_frame[frameKey].forEach((face, index) => {
-                // МАСШТАБИРУЕМ КООРДИНАТЫ
                 const scaledFace = this.videoToCanvas(face.x, face.y, face.width, face.height);
 
                 console.log(`🎯 Face ${index}: original(${face.x},${face.y},${face.width},${face.height}) -> scaled(${scaledFace.x},${scaledFace.y},${scaledFace.width},${scaledFace.height})`);
 
-                // Разный цвет для автоматических и ручных масок
                 const isManual = face.manual;
-                ctx.strokeStyle = isManual ? '#ff9900' : '#00ff00'; // Оранжевый для ручных, зеленый для авто
+                ctx.strokeStyle = isManual ? '#ff9900' : '#00ff00';
                 ctx.lineWidth = 2;
                 ctx.strokeRect(scaledFace.x, scaledFace.y, scaledFace.width, scaledFace.height);
 
-                // Подпись с указанием типа
                 ctx.fillStyle = isManual ? '#ff9900' : '#00ff00';
                 ctx.font = '14px Arial';
                 const label = isManual ? `Manual Face ${index + 1}` : `Face ${index + 1}`;
                 ctx.fillText(label, scaledFace.x, scaledFace.y - 5);
 
-                // Рисуем точку в центре для отладки
                 ctx.fillStyle = 'blue';
                 ctx.fillRect(
                     scaledFace.x + scaledFace.width / 2 - 2,
@@ -681,7 +642,6 @@ class VideoProcessorApp {
         this.isAddingFace = !this.isAddingFace;
         this.isRemovingFace = false;
 
-        // Сбрасываем состояние рисования при выходе из режима
         if (!this.isAddingFace) {
             this.cancelDrawing();
         }
@@ -719,7 +679,6 @@ class VideoProcessorApp {
 
         const canvas = document.getElementById('faceCanvas');
 
-        // Рассчитываем масштаб между CSS и реальными размерами
         const scaleX = canvas.width / canvas.offsetWidth;
         const scaleY = canvas.height / canvas.offsetHeight;
 
@@ -759,17 +718,13 @@ class VideoProcessorApp {
     }
 
     handleCanvasClick(e) {
-        // Теперь клик используется только для отмены режима добавления
         if (this.isAddingFace && !this.isDrawing) {
-            // Отменяем режим добавления при клике без рисования
             this.toggleAddFaceMode();
         }
     }
 
     async finishDrawing() {
         if (!this.isDrawing) return;
-
-        // Вычисляем координаты и размер прямоугольника
         const x = Math.min(this.startX, this.currentX);
         const y = Math.min(this.startY, this.currentY);
         const width = Math.abs(this.currentX - this.startX);
@@ -777,19 +732,16 @@ class VideoProcessorApp {
 
         console.log(`🎨 Finished drawing canvas: (${x}, ${y}, ${width}, ${height})`);
 
-        // Проверяем минимальный размер
         if (width < 20 || height < 20) {
             console.log('❌ Rectangle too small, ignoring');
             this.cancelDrawing();
             return;
         }
 
-        // Преобразуем в координаты видео
         const videoCoords = this.canvasToVideo(x, y, width, height);
         console.log(`🎯 Video coords: (${videoCoords.x}, ${videoCoords.y}, ${videoCoords.width}, ${videoCoords.height})`);
 
         try {
-            // Отправляем запрос на сервер для добавления лица
             const response = await fetch(`/api/frame/${this.videoId}/${this.currentFrame}/add_face`, {
                 method: 'POST',
                 headers: {
@@ -810,7 +762,6 @@ class VideoProcessorApp {
             const result = await response.json();
             console.log('✅ Face added successfully:', result);
 
-            // Обновляем локальные данные
             this.analysisResult = await this.getAnalysisResult();
 
         } catch (error) {
@@ -818,16 +769,14 @@ class VideoProcessorApp {
             this.showStatus('error', `Failed to add face: ${error.message}`, document.getElementById('editStatus'));
         }
 
-        // Сбрасываем состояние рисования
         this.cancelDrawing();
     }
 
     cancelDrawing() {
         this.isDrawing = false;
         this.tempRect = null;
-        this.originalImageData = null; // Сбрасываем сохраненное изображение
+        this.originalImageData = null;
 
-        // Перерисовываем canvas
         this.loadFrame(this.currentFrame);
     }
 
@@ -835,15 +784,12 @@ class VideoProcessorApp {
         const canvas = document.getElementById('faceCanvas');
         const ctx = canvas.getContext('2d');
 
-        // Сохраняем оригинальное изображение
         if (!this.originalImageData) {
             this.originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         }
 
-        // Восстанавливаем оригинальное изображение
         ctx.putImageData(this.originalImageData, 0, 0);
 
-        // Рисуем временный прямоугольник поверх
         if (this.isDrawing) {
             const x = Math.min(this.startX, this.currentX);
             const y = Math.min(this.startY, this.currentY);
@@ -852,36 +798,14 @@ class VideoProcessorApp {
 
             console.log(`🎨 Drawing temp rect: (${x}, ${y}, ${width}, ${height})`);
 
-            // Рисуем полупрозрачный прямоугольник
             ctx.strokeStyle = '#ff9900';
             ctx.lineWidth = 2;
             ctx.strokeRect(x, y, width, height);
 
-            // Заливка с прозрачностью
             ctx.fillStyle = 'rgba(255, 153, 0, 0.2)';
             ctx.fillRect(x, y, width, height);
         }
     }
-
-
-    // addFace(frameNumber, x, y, width, height) {
-    //     const frameKey = frameNumber.toString();
-
-    //     if (!this.analysisResult.faces_by_frame[frameKey]) {
-    //         this.analysisResult.faces_by_frame[frameKey] = [];
-    //     }
-
-    //     this.analysisResult.faces_by_frame[frameKey].push({
-    //         x: Math.max(0, x),
-    //         y: Math.max(0, y),
-    //         width: width,
-    //         height: height,
-    //         confidence: 0.5, // Manual addition has lower confidence
-    //         manual: true // Mark as manually added
-    //     });
-
-    //     this.loadFrame(frameNumber); // Reload to show new face
-    // }
 
     async removeFace(frameNumber, faceIndex) {
         try {
@@ -893,7 +817,6 @@ class VideoProcessorApp {
                 throw new Error('Failed to remove face');
             }
 
-            // Всегда получаем свежие данные с сервера
             this.analysisResult = await this.getAnalysisResult();
             this.loadFrame(frameNumber);
 
@@ -955,7 +878,6 @@ class VideoProcessorApp {
     }
 
     saveEdits() {
-        // Analysis result already updated in memory
         this.showStep('process');
         this.showStatus('success', 'Face edits saved successfully!');
     }
@@ -981,11 +903,9 @@ class VideoProcessorApp {
     }
 }
 
-// Initialize app when page loads
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM loaded, initializing VideoProcessorApp...');
     try {
-        // Сделать app глобальной переменной
         window.app = new VideoProcessorApp();
         console.log('VideoProcessorApp initialized successfully');
     } catch (error) {

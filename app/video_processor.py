@@ -19,41 +19,32 @@ class FaceBoundingBox:
 
 class VideoProcessor:
     def __init__(self):
-        """Инициализация ТОЛЬКО с Haar cascade"""
         self.detector_type = 'haar'
         
-        # Загружаем Haar cascade
         cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         self.face_cascade = cv2.CascadeClassifier(cascade_path)
         
         if self.face_cascade.empty():
             raise RuntimeError("Failed to load Haar cascade detector")
         
-        logger.info("✅ Haar cascade face detector initialized")
+        logger.info("Haar cascade face detector initialized")
 
     def detect_faces(self, frame: np.ndarray) -> List[FaceBoundingBox]:
-        """
-        Детекция лиц с помощью Haar cascade
-        """
         h, w = frame.shape[:2]
         faces = []
         
         try:
-            # Конвертируем в grayscale (требование Haar cascade)
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            
-            # Детекция лиц с оптимальными параметрами
+        
             detected_faces = self.face_cascade.detectMultiScale(
                 gray,
-                scaleFactor=1.1,      # Чувствительность к масштабу
-                minNeighbors=4,       # Качество детекции
-                minSize=(10, 10),     # Минимальный размер лица
+                scaleFactor=1.1,      
+                minNeighbors=4,      
+                minSize=(10, 10),    
                 flags=cv2.CASCADE_SCALE_IMAGE
             )
             
-            # Обрабатываем найденные лица
             for (x, y, w, h) in detected_faces:
-                # Добавляем margin вокруг лица
                 margin_w = int(w * 0.2)
                 margin_h = int(h * 0.25)
                 
@@ -72,9 +63,6 @@ class VideoProcessor:
         return faces
 
     def analyze_video(self, video_path: str, output_json_path: Optional[str] = None) -> Dict:
-        """
-        Анализ видео для обнаружения лиц
-        """
         if not os.path.exists(video_path):
             raise FileNotFoundError(f"Video file not found: {video_path}")
         
@@ -82,7 +70,6 @@ class VideoProcessor:
         if not cap.isOpened():
             raise ValueError(f"Cannot open video file: {video_path}")
         
-        # Получаем информацию о видео
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -90,12 +77,11 @@ class VideoProcessor:
         
         logger.info(f"ANALYSIS: {total_frames} frames, {fps} FPS, {width}x{height}")
         
-        # Настройки анализа
-        frame_skip = 3          # Анализируем каждый 3-й кадр
-        target_width = 640       # Разрешение для анализа
+        frame_skip = 3        
+        target_width = 640       
         
         faces_by_frame = {}
-        previous_faces = []      # Для интерполяции между кадрами
+        previous_faces = []   
         frame_number = 0
         
         start_time = time.time()
@@ -107,13 +93,10 @@ class VideoProcessor:
             
             current_faces = []
             
-            # Анализируем кадр с заданной частотой
             if frame_number % frame_skip == 0:
-                # Уменьшаем разрешение для скорости
                 analysis_frame = self._resize_frame(frame, target_width)
                 current_faces = self.detect_faces(analysis_frame)
                 
-                # Масштабируем координаты обратно к исходному размеру
                 if current_faces:
                     scale_w = width / analysis_frame.shape[1]
                     scale_h = height / analysis_frame.shape[0]
@@ -130,10 +113,8 @@ class VideoProcessor:
                 
                 previous_faces = current_faces
             else:
-                # Используем лица из предыдущего кадра для плавности
                 current_faces = previous_faces
             
-            # Сохраняем результаты
             if current_faces:
                 faces_by_frame[str(frame_number)] = [
                     {
@@ -145,7 +126,6 @@ class VideoProcessor:
                     for f in current_faces
                 ]
             
-            # Логируем прогресс
             if frame_number % 100 == 0:
                 elapsed = time.time() - start_time
                 frames_per_sec = frame_number / elapsed if elapsed > 0 else 0
@@ -158,10 +138,9 @@ class VideoProcessor:
         cap.release()
         
         total_time = time.time() - start_time
-        logger.info(f"✅ Analysis completed in {total_time:.1f} seconds")
-        logger.info(f"📊 Results: {len(faces_by_frame)}/{total_frames} frames contain faces")
-        
-        # Формируем результат
+        logger.info(f"Analysis completed in {total_time:.1f} seconds")
+        logger.info(f"Results: {len(faces_by_frame)}/{total_frames} frames contain faces")
+     
         result = {
             'video_info': {
                 'file_path': video_path,
@@ -179,14 +158,12 @@ class VideoProcessor:
             }
         }
         
-        # Сохраняем JSON если указан путь
         if output_json_path:
             self._save_to_json(result, output_json_path)
         
         return result
 
     def _resize_frame(self, frame: np.ndarray, target_width: int) -> np.ndarray:
-        """Уменьшает кадр для быстрой обработки"""
         h, w = frame.shape[:2]
         if w > target_width:
             new_w = target_width
@@ -195,7 +172,6 @@ class VideoProcessor:
         return frame
 
     def _save_to_json(self, data: Dict, output_path: str):
-        """Сохраняет данные в JSON файл"""
         try:
             output_dir = os.path.dirname(output_path)
             if output_dir and not os.path.exists(output_dir):
@@ -203,15 +179,12 @@ class VideoProcessor:
                 
             with open(output_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
-            logger.info(f"💾 Analysis results saved to: {output_path}")
+            logger.info(f"Analysis results saved to: {output_path}")
         except Exception as e:
             logger.error(f"Error saving JSON: {e}")
 
     def process_video(self, input_path: str, output_path: str, 
                         masks_data: Dict, blur_strength: int = 25) -> bool:
-        """
-        Прямая обработка с использованием OpenCV + FFmpeg pipe
-        """
         import subprocess
         
         if not os.path.exists(input_path):
@@ -226,7 +199,6 @@ class VideoProcessor:
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
-        # Команда FFmpeg для кодирования в H.264
         ffmpeg_cmd = [
             'ffmpeg', '-y',
             '-f', 'rawvideo',
@@ -234,7 +206,7 @@ class VideoProcessor:
             '-pix_fmt', 'bgr24',
             '-s', f'{width}x{height}',
             '-r', str(fps),
-            '-i', '-',  # Читать из stdin
+            '-i', '-', 
             '-c:v', 'libx264',
             '-preset', 'medium',
             '-crf', '23',
@@ -243,10 +215,8 @@ class VideoProcessor:
             output_path
         ]
         
-        # Запускаем FFmpeg процесс
         ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
         
-        # Подготавливаем маски
         compiled_masks = {}
         for frame_key, masks in masks_data.items():
             try:
@@ -258,7 +228,6 @@ class VideoProcessor:
             except (ValueError, KeyError):
                 continue
         
-        # Обработка кадров
         frame_number = 0
         start_time = time.time()
         
@@ -268,12 +237,10 @@ class VideoProcessor:
                 if not ret:
                     break
                 
-                # Применяем размытие если есть маски
                 if frame_number in compiled_masks:
                     masks = compiled_masks[frame_number]
                     frame = self._apply_blur(frame, masks, blur_strength)
                 
-                # Отправляем кадр в FFmpeg
                 ffmpeg_process.stdin.write(frame.tobytes())
                 
                 frame_number += 1
@@ -292,23 +259,18 @@ class VideoProcessor:
             ffmpeg_process.wait()
         
         total_time = time.time() - start_time
-        logger.info(f"✅ H.264 processing completed in {total_time:.1f} seconds")
+        logger.info(f"H.264 processing completed in {total_time:.1f} seconds")
         return True
 
     def _apply_blur(self, frame: np.ndarray, masks: list, blur_strength: int) -> np.ndarray:
-        """Применяет размытие к областям с лицами"""
         if not masks:
             return frame
         
         result_frame = frame.copy()
-        
-        # Используем blur_strength для расчета размера ядра
-        # Делаем ядро нечетным и зависимым от blur_strength
-        kernel_size = max(3, blur_strength * 2 - 1)  # Минимальный размер 3, увеличиваем с blur_strength
-        kernel_size = kernel_size + 1 if kernel_size % 2 == 0 else kernel_size  # Делаем нечетным
+        kernel_size = max(3, blur_strength * 2 - 1)  
+        kernel_size = kernel_size + 1 if kernel_size % 2 == 0 else kernel_size  
         
         for x, y, w, h in masks:
-            # Проверяем границы
             x1, y1 = max(0, x), max(0, y)
             x2, y2 = min(frame.shape[1], x + w), min(frame.shape[0], y + h)
             
@@ -319,33 +281,3 @@ class VideoProcessor:
                     result_frame[y1:y2, x1:x2] = blurred_roi
         
         return result_frame
-
-# Тестирование
-if __name__ == "__main__":
-    processor = VideoProcessor()
-    
-    # Тестируем на разных видео
-    test_videos = [
-        "C:/Users/Саныч/Desktop/videos/678558_University_College_1920x1080.mp4",
-        "test_video1.mp4",
-        "test_video2.mp4"
-    ]
-    
-    for video_path in test_videos:
-        if os.path.exists(video_path):
-            print(f"\n=== Analyzing {video_path} ===")
-            try:
-                analysis = processor.analyze_video(video_path, "analysis.json")
-                face_frames = len(analysis['faces_by_frame'])
-                total_frames = analysis['video_info']['total_frames']
-                print(f"Results: {face_frames}/{total_frames} frames have faces")
-                
-                if face_frames > 0:
-                    output_path = video_path.replace('.mp4', '_blurred.mp4')
-                    processor.process_video(video_path, output_path, analysis['faces_by_frame'])
-                    print(f"Processed: {output_path}")
-                else:
-                    print("No faces found - skipping processing")
-                    
-            except Exception as e:
-                print(f"Error processing {video_path}: {e}")
